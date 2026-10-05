@@ -1,6 +1,16 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -46,6 +56,7 @@ class Basin(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     filature: Mapped[Filature] = relationship(back_populates="basins")
     readings: Mapped[list["BathReading"]] = relationship(back_populates="basin")
+    brushes: Mapped[list["Brush"]] = relationship(back_populates="basin")
 
 
 class BathReading(Base):
@@ -57,3 +68,27 @@ class BathReading(Base):
     water_temp_c: Mapped[float] = mapped_column(Float)
     operator: Mapped[str] = mapped_column(String(64), default="")
     basin: Mapped[Basin] = relationship(back_populates="readings")
+
+
+class Brush(Base):
+    """索绪帚：挂在盆上，改成缫丝中时消耗剩余次数。"""
+
+    __tablename__ = "brushes"
+    __table_args__ = (
+        # 同一盆最多一把未报废帚（报废时刻为空的局部唯一索引）
+        Index(
+            "uq_brushes_one_active_per_basin",
+            "basin_id",
+            unique=True,
+            postgresql_where=text("scrapped_at IS NULL"),
+            sqlite_where=text("scrapped_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    basin_id: Mapped[int] = mapped_column(ForeignKey("basins.id"))
+    brush_no: Mapped[str] = mapped_column(String(40))
+    remaining: Mapped[int] = mapped_column(Integer)
+    hung_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    scrapped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    basin: Mapped[Basin] = relationship(back_populates="brushes")
