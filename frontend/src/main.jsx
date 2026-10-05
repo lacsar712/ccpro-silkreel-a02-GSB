@@ -64,7 +64,7 @@ function Yard() {
 
   if (!board) {
     return (
-      <div class="yard">
+      <div>
         {err || "装载环盆…"}
       </div>
     );
@@ -99,21 +99,8 @@ function Yard() {
   }
 
   return (
-    <div class="yard">
-      <div class="topbar">
-        <div>
-          <h1>{board.filature}</h1>
-          <p>{board.riverside} · 点盆登记汤温；已缫完须最近汤温 38～42℃</p>
-        </div>
-        <button
-          onClick={() => {
-            clearToken();
-            location.reload();
-          }}
-        >
-          退出
-        </button>
-      </div>
+    <div>
+      <p class="hint">{board.riverside} · 点盆登记汤温；已缫完须最近汤温 38～42℃；浸茧改缫丝中须先挂索绪帚</p>
       <div class="ring">
         {board.basins.map((b, i) => {
           const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
@@ -138,6 +125,12 @@ function Yard() {
             {picked.code} · {STATUS_LABEL[picked.status]}
           </h3>
           <p>最近汤温：{picked.latestTempC ?? "无"} ℃ · 记录 {picked.readingCount} 次</p>
+          <p>
+            索绪帚：
+            {picked.brush
+              ? `${picked.brush.brushNo} · 剩 ${picked.brush.remaining} 次`
+              : "未挂帚"}
+          </p>
           <input value={temp} onInput={(e) => setTemp(e.target.value)} />
           <button onClick={writeTemp}>登记汤温</button>
           <div>
@@ -152,9 +145,182 @@ function Yard() {
   );
 }
 
+function Brushes() {
+  const [basins, setBasins] = useState([]);
+  const [brushes, setBrushes] = useState([]);
+  const [filter, setFilter] = useState("");
+  const [basinId, setBasinId] = useState("");
+  const [brushNo, setBrushNo] = useState("");
+  const [remaining, setRemaining] = useState("3");
+  const [err, setErr] = useState("");
+
+  async function loadBrushes(basinFilter) {
+    const q = basinFilter ? `?basinId=${basinFilter}` : "";
+    const data = await api(`/api/brushes${q}`);
+    setBrushes(data.brushes);
+  }
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const board = await api("/api/board");
+        setBasins(board.basins);
+        await loadBrushes("");
+      } catch (ex) {
+        setErr(ex.message);
+      }
+    })();
+  }, []);
+
+  async function changeFilter(e) {
+    const value = e.target.value;
+    setFilter(value);
+    setErr("");
+    try {
+      await loadBrushes(value);
+    } catch (ex) {
+      setErr(ex.message);
+    }
+  }
+
+  async function hang(e) {
+    e.preventDefault();
+    setErr("");
+    try {
+      await api("/api/brushes", {
+        method: "POST",
+        body: JSON.stringify({
+          basinId: Number(basinId),
+          brushNo,
+          remaining: Number(remaining),
+        }),
+      });
+      setBrushNo("");
+      await loadBrushes(filter);
+    } catch (ex) {
+      setErr(ex.message);
+    }
+  }
+
+  async function discard(id) {
+    setErr("");
+    try {
+      await api(`/api/brushes/${id}/discard`, { method: "POST" });
+      await loadBrushes(filter);
+    } catch (ex) {
+      setErr(ex.message);
+    }
+  }
+
+  return (
+    <div class="drawer">
+      <h3>索绪帚</h3>
+      <p class="hint">浸茧改成缫丝中前，该盆须挂着未报废且剩余次数大于 0 的帚；每改一次扣一次。</p>
+      <form class="brush-form" onSubmit={hang}>
+        <select value={basinId} onChange={(e) => setBasinId(e.target.value)} required>
+          <option value="">选盆</option>
+          {basins.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.code}（{STATUS_LABEL[b.status]}）
+            </option>
+          ))}
+        </select>
+        <input
+          placeholder="帚号"
+          value={brushNo}
+          onInput={(e) => setBrushNo(e.target.value)}
+          required
+        />
+        <input
+          type="number"
+          min="1"
+          step="1"
+          placeholder="剩余次数"
+          value={remaining}
+          onInput={(e) => setRemaining(e.target.value)}
+          required
+        />
+        <button type="submit">挂出</button>
+      </form>
+      <p>
+        <label class="inline">
+          按盆筛：
+          <select value={filter} onChange={changeFilter}>
+            <option value="">全部盆</option>
+            {basins.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.code}
+              </option>
+            ))}
+          </select>
+        </label>
+      </p>
+      <table class="brush-table">
+        <thead>
+          <tr>
+            <th>帚号</th>
+            <th>盆</th>
+            <th>剩余次数</th>
+            <th>挂出时刻</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {brushes.length === 0 && (
+            <tr>
+              <td colspan="5">暂无未报废的帚</td>
+            </tr>
+          )}
+          {brushes.map((b) => (
+            <tr key={b.id}>
+              <td>{b.brushNo}</td>
+              <td>{b.basinCode}</td>
+              <td>{b.remaining}</td>
+              <td>{b.hungAt ? new Date(b.hungAt).toLocaleString() : ""}</td>
+              <td>
+                <button onClick={() => discard(b.id)}>报废</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {err && <p class="err">{err}</p>}
+    </div>
+  );
+}
+
 function App() {
   const [ready, setReady] = useState(Boolean(token()));
-  return ready ? <Yard /> : <Login onOk={() => setReady(true)} />;
+  const [view, setView] = useState("yard");
+  if (!ready) {
+    return <Login onOk={() => setReady(true)} />;
+  }
+  return (
+    <div class="yard">
+      <div class="topbar">
+        <div>
+          <h1>江口缫丝坞</h1>
+          <nav class="tabs">
+            <button class={view === "yard" ? "on" : ""} onClick={() => setView("yard")}>
+              环盆作业台
+            </button>
+            <button class={view === "brushes" ? "on" : ""} onClick={() => setView("brushes")}>
+              索绪帚
+            </button>
+          </nav>
+        </div>
+        <button
+          onClick={() => {
+            clearToken();
+            location.reload();
+          }}
+        >
+          退出
+        </button>
+      </div>
+      {view === "yard" ? <Yard /> : <Brushes />}
+    </div>
+  );
 }
 
 render(<App />, document.getElementById("app"));

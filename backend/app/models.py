@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -46,6 +46,7 @@ class Basin(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     filature: Mapped[Filature] = relationship(back_populates="basins")
     readings: Mapped[list["BathReading"]] = relationship(back_populates="basin")
+    brushes: Mapped[list["Brush"]] = relationship(back_populates="basin")
 
 
 class BathReading(Base):
@@ -57,3 +58,25 @@ class BathReading(Base):
     water_temp_c: Mapped[float] = mapped_column(Float)
     operator: Mapped[str] = mapped_column(String(64), default="")
     basin: Mapped[Basin] = relationship(back_populates="readings")
+
+
+class Brush(Base):
+    """索绪帚：挂在盆上，改成缫丝中时扣一次。同一盆未报废帚最多一把。"""
+
+    __tablename__ = "brushes"
+    __table_args__ = (
+        Index(
+            "uq_brushes_one_active_per_basin",
+            "basin_id",
+            unique=True,
+            postgresql_where=text("discarded_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    basin_id: Mapped[int] = mapped_column(ForeignKey("basins.id"))
+    brush_no: Mapped[str] = mapped_column(String(60))
+    remaining: Mapped[int] = mapped_column(Integer)
+    hung_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    discarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    basin: Mapped[Basin] = relationship(back_populates="brushes")
